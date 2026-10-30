@@ -1,0 +1,4 @@
+*.exe
+ccd_park_log.csv
+games.txt
+dist/
