@@ -22,7 +22,7 @@ The window has a per-thread grid (parked `P` or load %), per-CCD load, the curre
 
 ## Log
 
-`ccd_park_log.csv` is written next to the exe, one line per state change plus a summary when the game loses focus, so you can check results after a fullscreen session. It is appended to, never overwritten; delete it to start fresh.
+`ccd_park_log.csv` is written next to the exe, one line per state change plus a summary when the game loses focus, so you can check results after a fullscreen session. It is appended to, never overwritten; delete it to start fresh. Untick **Write log** (in the window or the tray menu) to stop logging; the choice is remembered in `HKCU\Software\CcdParkMonitor`.
 
 ## Build
 
