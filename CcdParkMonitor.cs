@@ -203,14 +203,14 @@ static class Settings
 {
     const string KeyPath = @"Software\CcdParkMonitor";
 
-    public static bool GetBool(string name)
+    public static bool GetBool(string name, bool defaultValue = false)
     {
         try
         {
             using (var k = Registry.CurrentUser.OpenSubKey(KeyPath))
-                return k != null && Convert.ToInt32(k.GetValue(name, 0)) != 0;
+                return k == null ? defaultValue : Convert.ToInt32(k.GetValue(name, defaultValue ? 1 : 0)) != 0;
         }
-        catch { return false; }
+        catch { return defaultValue; }
     }
 
     public static void SetBool(string name, bool value)
@@ -243,6 +243,8 @@ class MonitorForm : Form
     readonly CheckBox forceGame = new CheckBox();
     readonly CheckBox stayOnTop = new CheckBox();
     readonly ToolStripMenuItem stayOnTopItem = new ToolStripMenuItem("Stay on top");
+    readonly CheckBox logging = new CheckBox();
+    readonly ToolStripMenuItem loggingItem = new ToolStripMenuItem("Write log");
     readonly string logPath = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "ccd_park_log.csv");
 
     HashSet<string> games;
@@ -253,6 +255,7 @@ class MonitorForm : Form
     int gameSamples, gameParkedSamples, failEvents;
     double gameTargetLoadSum;
     bool alerted;
+    bool logEnabled;
     volatile int powerMode = -1;          // written from a threadpool callback, read in OnTick
     int loggedPowerMode = -1;
     Native.PowerModeCallback powerModeCallback; // kept in a field so the GC doesn't collect it
@@ -276,7 +279,7 @@ class MonitorForm : Form
 
         Text = "CCD Park Monitor";
         Font = new Font("Segoe UI", 9f);
-        ClientSize = new Size(560, 322);
+        ClientSize = new Size(560, 346);
         FormBorderStyle = FormBorderStyle.FixedSingle;
         MaximizeBox = false;
         BackColor = Color.FromArgb(28, 28, 30);
@@ -292,7 +295,10 @@ class MonitorForm : Form
         stayOnTop.SetBounds(12, 294, 536, 22);
         stayOnTop.Text = "Stay on top";
         stayOnTop.CheckedChanged += delegate { SetStayOnTop(stayOnTop.Checked); };
-        Controls.AddRange(new Control[] { status, grid, details, forceGame, stayOnTop });
+        logging.SetBounds(12, 318, 536, 22);
+        logging.Text = "Write log (ccd_park_log.csv)";
+        logging.CheckedChanged += delegate { SetLogging(logging.Checked); };
+        Controls.AddRange(new Control[] { status, grid, details, forceGame, stayOnTop, logging });
 
         for (int i = 0; i < 4; i++) icons[i] = MakeIcon(VerdictColor((Verdict)i));
         tray.Icon = icons[0];
@@ -303,16 +309,18 @@ class MonitorForm : Form
         menu.Items.Add("Show", null, delegate { Show(); Activate(); });
         stayOnTopItem.Click += delegate { SetStayOnTop(!TopMost); };
         menu.Items.Add(stayOnTopItem);
+        loggingItem.Click += delegate { SetLogging(!logEnabled); };
+        menu.Items.Add(loggingItem);
         menu.Items.Add("Open log", null, delegate { if (File.Exists(logPath)) System.Diagnostics.Process.Start(logPath); });
         menu.Items.Add("Exit", null, delegate { tray.Visible = false; Application.Exit(); });
         tray.ContextMenuStrip = menu;
 
         SetStayOnTop(Settings.GetBool("StayOnTop"));
+        SetLogging(Settings.GetBool("Logging", true));
 
         powerModeCallback = delegate(int mode, IntPtr ctx) { powerMode = mode; };
         Native.PowerRegisterForEffectivePowerModeNotifications(Native.EFFECTIVE_POWER_MODE_V2, powerModeCallback, IntPtr.Zero, out powerModeHandle);
 
-        if (!File.Exists(logPath)) File.AppendAllText(logPath, "time,event,exe,detail\r\n");
         Log("start", "", string.Format("target={0} cpus {1}-{2}, vcache L3={3} MB", target.Name, target.Cpus[0], target.Cpus[target.Cpus.Count - 1], VCacheCcd().L3Bytes >> 20));
 
         timer.Interval = 1000;
@@ -327,6 +335,14 @@ class MonitorForm : Form
         stayOnTop.Checked = on;       // no-op re-entry when already equal
         stayOnTopItem.Checked = on;
         Settings.SetBool("StayOnTop", on);
+    }
+
+    void SetLogging(bool on)
+    {
+        logEnabled = on;
+        logging.Checked = on;         // no-op re-entry when already equal
+        loggingItem.Checked = on;
+        Settings.SetBool("Logging", on);
     }
 
     Ccd VCacheCcd() { foreach (var c in ccds) if (c.VCache) return c; return null; }
@@ -456,9 +472,11 @@ class MonitorForm : Form
 
     void Log(string evt, string exe, string detail)
     {
+        if (!logEnabled) return;
         detail = (detail.Length > 0 ? detail + "; " : "") + "power mode " + PowerModeName(powerMode);
         try
         {
+            if (!File.Exists(logPath)) File.AppendAllText(logPath, "time,event,exe,detail\r\n");
             File.AppendAllText(logPath, string.Format("{0:yyyy-MM-dd HH:mm:ss},{1},\"{2}\",\"{3}\"\r\n", DateTime.Now, evt, exe, detail));
         }
         catch { }
